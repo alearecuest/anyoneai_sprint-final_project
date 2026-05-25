@@ -24,6 +24,7 @@ INDEX_LINE_PATTERN = re.compile(r"^\s*[^\n]{3,}\.\.+\s*\d+\s*$")
 MULTISPACE_PATTERN = re.compile(r"[ \t]+")
 TOKEN_PATTERN = re.compile(r"[\wáéíóúñ]+", re.IGNORECASE)
 SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?])\s+")
+MAX_REPEATED_EDGE_LINE_LENGTH = 120
 
 
 @dataclass(frozen=True)
@@ -36,7 +37,7 @@ class Chunk:
 class SimpleHashEmbedder:
     def __init__(self, dimension: int = 128) -> None:
         if dimension <= 0:
-            raise ValueError("dimension must be positive")
+            raise ValueError(f"dimension must be positive, got {dimension}")
         self.dimension = dimension
 
     def embed(self, text: str) -> list[float]:
@@ -111,7 +112,7 @@ def _identify_repeated_edge_lines(pages: list[list[str]]) -> set[str]:
     repeated = {
         line
         for line, count in counts.items()
-        if count >= 2 and len(line) <= 120 and not _is_noise_line(line)
+        if count >= 2 and len(line) <= MAX_REPEATED_EDGE_LINE_LENGTH and not _is_noise_line(line)
     }
     return repeated
 
@@ -138,83 +139,80 @@ def extract_and_clean_pdf_text(pdf_path: str | Path, output_path: str | Path | N
 
 def chunk_text(text: str, chunk_size: int = 900, overlap: int = 120) -> list[Chunk]:
     if chunk_size <= 0:
-        raise ValueError("chunk_size must be positive")
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}")
     if overlap < 0:
-        raise ValueError("overlap cannot be negative")
+        raise ValueError(f"overlap cannot be negative, got {overlap}")
     if overlap >= chunk_size:
-        raise ValueError("overlap must be smaller than chunk_size")
+        raise ValueError(f"overlap ({overlap}) must be smaller than chunk_size ({chunk_size})")
 
     source = text.strip()
     if not source:
         return []
 
-    parts = [part.strip() for part in re.split(r"\n\s*\n", source) if part.strip()]
-    if not parts:
+    raw_parts = [part.strip() for part in re.split(r"\n\s*\n", source) if part.strip()]
+    if not raw_parts:
         return []
 
-    chunks: list[Chunk] = []
-    current_text = ""
-    current_start = 0
-    cursor = 0
-
-    def flush_chunk() -> None:
-        nonlocal current_text, current_start
-        chunk_body = current_text.strip()
-        if not chunk_body:
-            current_text = ""
-            return
-        start = source.find(chunk_body, current_start)
-        if start < 0:
-            start = max(current_start, 0)
-        end = start + len(chunk_body)
-        chunks.append(Chunk(text=chunk_body, start_char=start, end_char=end))
-        current_text = ""
-        current_start = max(end - overlap, 0)
-
-    for part in parts:
-        if len(part) > chunk_size:
-            sentences = [sentence.strip() for sentence in SENTENCE_SPLIT_PATTERN.split(part) if sentence.strip()]
-            for sentence in sentences:
-                if len(sentence) > chunk_size:
-                    words = sentence.split()
-                    piece = ""
-                    for word in words:
-                        candidate = f"{piece} {word}".strip()
-                        if len(candidate) <= chunk_size:
-                            piece = candidate
-                            continue
-                        if piece:
-                            if current_text and len(f"{current_text}\n\n{piece}") > chunk_size:
-                                flush_chunk()
-                            current_text = f"{current_text}\n\n{piece}".strip()
-                            cursor += len(piece)
-                            piece = word
-                    if piece:
-                        if current_text and len(f"{current_text}\n\n{piece}") > chunk_size:
-                            flush_chunk()
-                        current_text = f"{current_text}\n\n{piece}".strip()
-                        cursor += len(piece)
-                    continue
-
-                candidate = f"{current_text}\n\n{sentence}".strip()
-                if current_text and len(candidate) > chunk_size:
-                    flush_chunk()
-                    candidate = sentence
-                current_text = candidate
-                cursor += len(sentence)
+    segments: list[str] = []
+    for part in raw_parts:
+        if len(part) <= chunk_size:
+            segments.append(part)
             continue
 
-        candidate = f"{current_text}\n\n{part}".strip()
-        if current_text and len(candidate) > chunk_size:
-            flush_chunk()
-            candidate = part
-        current_text = candidate
-        cursor += len(part)
+        sentences = [sentence.strip() for sentence in SENTENCE_SPLIT_PATTERN.split(part) if sentence.strip()]
+        for sentence in sentences:
+            if len(sentence) <= chunk_size:
+                segments.append(sentence)
+                continue
 
-    flush_chunk()
+            words = sentence.split()
+            piece = ""
+            for word in words:
+                candidate = f"{piece} {word}".strip()
+                if len(candidate) <= chunk_size:
+                    piece = candidate
+                else:
+                    if piece:
+                        segments.append(piece)
+                    piece = word
+            if piece:
+                segments.append(piece)
 
-    if not chunks:
-        return [Chunk(text=source[:chunk_size], start_char=0, end_char=min(len(source), chunk_size))]
+    chunk_texts: list[str] = []
+    current = ""
+    for segment in segments:
+        candidate = f"{current}\n\n{segment}".strip() if current else segment
+        if current and len(candidate) > chunk_size:
+            chunk_texts.append(current)
+            current = segment
+        else:
+            current = candidate
+    if current:
+        chunk_texts.append(current)
+
+    if overlap > 0:
+        with_overlap: list[str] = [chunk_texts[0]]
+        for index in range(1, len(chunk_texts)):
+            requested_tail = chunk_texts[index - 1][-overlap:].strip()
+            available_tail_size = max(chunk_size - len(chunk_texts[index]) - 2, 0)
+            overlap_tail = requested_tail[-available_tail_size:] if available_tail_size > 0 else ""
+            candidate = f"{overlap_tail}\n\n{chunk_texts[index]}".strip() if overlap_tail else chunk_texts[index]
+            with_overlap.append(candidate)
+        chunk_texts = with_overlap
+
+    chunks: list[Chunk] = []
+    search_start = 0
+    for chunk_body in chunk_texts:
+        start = source.find(chunk_body, max(search_start - overlap, 0))
+        if start < 0:
+            start = source.find(chunk_body)
+        if start < 0:
+            raise ValueError(
+                f"Could not map chunk boundaries back to source text for chunk of length {len(chunk_body)}."
+            )
+        end = start + len(chunk_body)
+        chunks.append(Chunk(text=chunk_body, start_char=start, end_char=end))
+        search_start = end
 
     return chunks
 

@@ -46,6 +46,11 @@ class PolicyDataPipelineTests(unittest.TestCase):
         chunks = chunk_text(text, chunk_size=140, overlap=20)
 
         self.assertGreaterEqual(len(chunks), 2)
+        self.assertIn("Cobertura A", chunks[0].text)
+        self.assertIn("Exclusiones", chunks[-1].text)
+        overlap_prefix = chunks[1].text.split("\n\n", 1)[0]
+        self.assertTrue(overlap_prefix)
+        self.assertTrue(chunks[0].text.endswith(overlap_prefix))
         for chunk in chunks:
             self.assertLessEqual(len(chunk.text), 140)
             self.assertTrue(chunk.text)
@@ -64,6 +69,14 @@ class PolicyDataPipelineTests(unittest.TestCase):
         self.assertEqual(len(payload["embeddings"]), 2)
         self.assertEqual(len(payload["embeddings"][0]), 16)
         self.assertEqual(payload["metadatas"][1]["chunk_index"], 1)
+
+    def test_build_chroma_payload_with_empty_chunks(self):
+        payload = build_chroma_payload([], source_id="queplan-empty", embedder=SimpleHashEmbedder(dimension=8))
+
+        self.assertEqual(payload["ids"], [])
+        self.assertEqual(payload["documents"], [])
+        self.assertEqual(payload["metadatas"], [])
+        self.assertEqual(payload["embeddings"], [])
 
 
 if __name__ == "__main__":
