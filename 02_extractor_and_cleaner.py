@@ -36,7 +36,6 @@ def process_pdfs():
 
             cleaned_page_text = clean_text(raw_text)
 
-            # Guardamos el texto de la página y añadimos un separador visual/lógico
             full_text += f"\n\n--- PÁGINA {page_num + 1} ---\n\n"
             full_text += cleaned_page_text
 

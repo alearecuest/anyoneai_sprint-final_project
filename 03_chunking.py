@@ -37,10 +37,8 @@ def process_and_chunk():
         with open(file_path, "r", encoding="utf-8") as f:
             texto_completo = f.read()
 
-        # Generar los chunks usando LangChain
         chunks_texto = text_splitter.split_text(texto_completo)
 
-        # Armar la estructura de datos con Metadatos
         documentos_procesados = []
         for i, chunk in enumerate(chunks_texto):
             doc = {
@@ -52,7 +50,6 @@ def process_and_chunk():
 
         total_chunks_generados += len(documentos_procesados)
 
-        # Guardar el resultado en un JSON para que el equipo de DB lo levante fácil
         output_json_path = os.path.join(CHUNKS_DIR, filename.replace(".txt", ".json"))
         with open(output_json_path, "w", encoding="utf-8") as json_file:
             json.dump(documentos_procesados, json_file, ensure_ascii=False, indent=4)

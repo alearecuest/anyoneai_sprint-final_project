@@ -1,15 +1,12 @@
-# Entornos virtuales
 venv/
 env/
 .venv/
 
-# Caché de Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# Archivos de configuración y credenciales reales
 config.py
 .env
 
@@ -19,6 +16,5 @@ text_cleaned/
 *.pdf
 *.txt
 
-# Archivos del sistema operativo (Mac/Windows)
 .DS_Store
 Thumbs.db

@@ -24,7 +24,6 @@ def download_pdfs(limit=5):
         if key.lower().endswith(".pdf"):
             local_filename = os.path.join(RAW_PDF_DIR, os.path.basename(key))
 
-            # Solo descargar si el archivo no existe localmente
             if not os.path.exists(local_filename):
                 print(f"Descargando: {os.path.basename(key)}")
                 s3.download_file(BUCKET_NAME, key, local_filename)
