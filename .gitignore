@@ -1,0 +1,24 @@
+# Entornos virtuales
+venv/
+env/
+.venv/
+
+# Caché de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Archivos de configuración y credenciales reales
+config.py
+.env
+
+# Directorios de datos (Datasets y extracción)
+pdfs_raw/
+text_cleaned/
+*.pdf
+*.txt
+
+# Archivos del sistema operativo (Mac/Windows)
+.DS_Store
+Thumbs.db
